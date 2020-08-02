@@ -30,6 +30,7 @@ def GraphSAT(feature_dim,
         if i == len(neighbor_num) - 1:
             activation = tf.nn.softmax
             att_embedding_size = n_classes
+            n_att_head = 1
         h = aggregator(att_embedding_size=att_embedding_size, head_num=n_att_head,
                        activation=activation, l2_reg=l2_reg,
                        use_bias=use_bias, dropout_rate=dropout_rate,
@@ -62,7 +63,7 @@ class PoolingAggregator(Layer):
 
     def build(self, input_shape):
         X, N, neigh = input_shape
-        embedding_size = X[-1]
+        embedding_size = int(X[-1])
 
         # For Neighbor pooling
         self.dense_layer = [Dense(embedding_size, activation=tf.nn.relu, use_bias=True,
@@ -72,26 +73,22 @@ class PoolingAggregator(Layer):
         self.weight = self.add_weight(name='weight',
                                       shape=[embedding_size, self.att_embedding_size * self.head_num],
                                       dtype=tf.float32, regularizer=l2(self.l2_reg),
-                                      initializer=tf.keras.initializers.glorot_uniform()
-                                      )
+                                      initializer=tf.keras.initializers.glorot_uniform())
 
         # node attention weight
         self.att_self_weight = self.add_weight(name='att_self_weight',
                                                shape=[1, self.head_num, self.att_embedding_size],
                                                dtype=tf.float32, regularizer=l2(self.l2_reg),
-                                               initializer=tf.keras.initializers.glorot_uniform()
-                                               )
+                                               initializer=tf.keras.initializers.glorot_uniform())
         # neighbor attention weight
         self.att_neigh_weight = self.add_weight(name='att_self_weight',
                                                 shape=[1, self.head_num, self.att_embedding_size],
                                                 dtype=tf.float32, regularizer=l2(self.l2_reg),
-                                                initializer=tf.keras.initializers.glorot_uniform()
-                                                )
+                                                initializer=tf.keras.initializers.glorot_uniform())
         if self.use_bias:
             self.bias_weight = self.add_weight(name='bias',
                                                shape=[1, self.head_num, self.att_embedding_size],
-                                               dtype=tf.float32, regularizer=Zeros()
-                                               )
+                                               dtype=tf.float32, regularizer=Zeros())
 
         self.self_dropout = Dropout(self.dropout_rate)
         self.neigh_dropout = Dropout(self.dropout_rate)
@@ -100,7 +97,7 @@ class PoolingAggregator(Layer):
     def call(self, inputs):
         features, node, neighbor = inputs
         # print(features, node, inputs)
-        embedding_size = features.shape[-1]
+        embedding_size = int(features.shape[-1])
 
         node_feat = tf.nn.embedding_lookup(features, node)
         neigh_feat = tf.nn.embedding_lookup(features, neighbor)
@@ -109,11 +106,13 @@ class PoolingAggregator(Layer):
         dims = tf.shape(neigh_feat)
         batch_size = dims[0]
         num_neighbors = dims[1]
+
         h_reshaped = tf.reshape(neigh_feat, (batch_size * num_neighbors, embedding_size))
 
         for l in self.dense_layer:
             h_reshaped = l(h_reshaped)
-        neigh_feat = tf.reshape(h_reshaped, (batch_size, num_neighbors, h_reshaped.shape[-1]))
+        neigh_feat = tf.reshape(h_reshaped, (batch_size, num_neighbors, int(h_reshaped.shape[-1])))
+
         if self.pooling == 'mean':
             neigh_feat = tf.reduce_mean(neigh_feat, axis=1)
         else:
