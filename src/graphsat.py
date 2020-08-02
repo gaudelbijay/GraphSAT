@@ -146,7 +146,7 @@ class PoolingAggregator(Layer):
         if self.activation:
             result = self.activation(result)
 
-        result._use_learning_phase = True
+        # result._use_learning_phase = True
         return result
 
 

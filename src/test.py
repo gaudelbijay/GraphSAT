@@ -10,7 +10,7 @@ from tensorflow.keras.layers import Lambda
 from tensorflow.keras.models import Model
 from utils import preprocess_adj, plot_embeddings, load_data_v1
 
-tf.compat.v1.disable_eager_execution()
+# tf.compat.v1.disable_eager_execution()
 
 if __name__ == "__main__":
     print('Tensorflow ', tf.__version__, ' is running: ')
@@ -56,16 +56,16 @@ if __name__ == "__main__":
               epochs=50, shuffle=False, verbose=2, )  # callbacks=[mc_callback])
     # model.load_weights(checkpoint_dir)
 
-    eval_results = model.evaluate(
-        model_input, y_test, sample_weight=test_mask, batch_size=A.shape[0])
-    print('Done.\n'
-          'Test loss: {}\n'
-          'Test weighted_loss: {}\n'
-          'Test accuracy: {}'.format(*eval_results))
-
-    gcn_embedding = model.layers[-1]
-    embedding_model = Model(model.input, outputs=Lambda(lambda x: gcn_embedding.output)(model.input))
-    embedding_weights = embedding_model.predict(model_input, batch_size=A.shape[0])
-    print(embedding_weights.shape)
-    y = np.genfromtxt("{}{}.content".format('../data/cora/', 'cora'), dtype=np.dtype(str))[:, -1]
-    plot_embeddings(embedding_weights, np.arange(A.shape[0]), y)
+    # eval_results = model.evaluate(
+    #     model_input, y_test, sample_weight=test_mask, batch_size=A.shape[0])
+    # print('Done.\n'
+    #       'Test loss: {}\n'
+    #       'Test weighted_loss: {}\n'
+    #       'Test accuracy: {}'.format(*eval_results))
+    #
+    # gcn_embedding = model.layers[-1]
+    # embedding_model = Model(model.input, outputs=Lambda(lambda x: gcn_embedding.output)(model.input))
+    # embedding_weights = embedding_model.predict(model_input, batch_size=A.shape[0])
+    # print(embedding_weights.shape)
+    # y = np.genfromtxt("{}{}.content".format('../data/cora/', 'cora'), dtype=np.dtype(str))[:, -1]
+    # plot_embeddings(embedding_weights, np.arange(A.shape[0]), y)
