@@ -4,12 +4,12 @@ import tensorflow as tf
 from neighbor_sampler import sample_neighs
 import networkx as nx
 from graphsat import GraphSAT
-from tensorflow.keras.callbacks import ModelCheckpoint
+from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.layers import Lambda
 from tensorflow.keras.models import Model
 import scipy.sparse as sp
-from utils import preprocess_adj, plot_embeddings, load_data_v1
+from utils import preprocess_adj, plot_embeddings, load_data_v1, load_data
 
 tf.compat.v1.disable_eager_execution()
 
@@ -21,7 +21,7 @@ if __name__ == "__main__":
     # A = preprocess_adj(A)
     A = A + sp.eye(A.shape[0])
     indexes = np.arange(A.shape[0])
-    neigh_number = [10, 25]
+    neigh_number = [10, 10]
     neigh_maxlen = []
     features = np.squeeze(np.asarray(features))
     # print(features.shape)
@@ -40,23 +40,21 @@ if __name__ == "__main__":
                      use_bias=True,
                      activation=tf.nn.relu,
                      aggregator_type='pooling',
-                     dropout_rate=0.5,
+                     dropout_rate=0.6,
                      l2_reg=2.5e-4, )
     model.compile(Adam(0.001), 'categorical_crossentropy',
                   weighted_metrics=['categorical_crossentropy', 'acc'])
     val_data = [model_input, y_val, val_mask]
 
-    # checkpoint_dir = './training_checkpoints'
-    # # Name of the checkpoint files
-    # checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt_{epoch}")
-    # mc_callback = ModelCheckpoint(filepath=checkpoint_dir,
-    #                               monitor='val_weighted_categorical_crossentropy',
-    #                               save_best_only=True,
-    #                               save_weights_only=True)
+    mc_callback = ModelCheckpoint('./best_model.h5',
+                                  monitor='val_acc',
+                                  save_best_only=True,
+                                  save_weights_only=True)
+    es_callback = EarlyStopping(monitor='val_acc', patience=60)
     print('start training')
     model.fit(model_input, y_train, sample_weight=train_mask, validation_data=val_data, batch_size=A.shape[0],
-              epochs=100, shuffle=False, verbose=2, )  # callbacks=[mc_callback])
-    # model.load_weights(checkpoint_dir)
+              epochs=200, shuffle=False, verbose=2, callbacks=[mc_callback, es_callback])
+    model.load_weights('./best_model.h5')
 
     eval_results = model.evaluate(
         model_input, y_test, sample_weight=test_mask, batch_size=A.shape[0])

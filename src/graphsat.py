@@ -46,7 +46,7 @@ class PoolingAggregator(Layer):
 
     def __init__(self, att_embedding_size=8, head_num=8, activation=tf.nn.relu,
                  l2_reg=0.0, use_bias=False, dropout_rate=0.5,
-                 seed=1024, aggregator='mean', **kwargs):
+                 seed=1024, aggregator='mean', reduction='concat', **kwargs):
 
         if head_num <= 0:
             raise ValueError('head_num must be a int >0')
@@ -59,6 +59,7 @@ class PoolingAggregator(Layer):
         self.use_bias = use_bias
         self.pooling = aggregator
         self.seed = seed
+        self.reduction = reduction
         super(PoolingAggregator, self).__init__(**kwargs)
 
     def build(self, input_shape):
@@ -73,23 +74,23 @@ class PoolingAggregator(Layer):
         self.self_weight = self.add_weight(name='weight',
                                            shape=[embedding_size, self.att_embedding_size * self.head_num],
                                            dtype=tf.float32, regularizer=l2(self.l2_reg),
-                                           initializer=tf.keras.initializers.glorot_uniform())
+                                           initializer=tf.keras.initializers.glorot_uniform(seed=self.seed))
 
         self.neigh_weight = self.add_weight(name='weight',
                                             shape=[embedding_size, self.att_embedding_size * self.head_num],
                                             dtype=tf.float32, regularizer=l2(self.l2_reg),
-                                            initializer=tf.keras.initializers.glorot_uniform())
+                                            initializer=tf.keras.initializers.glorot_uniform(seed=self.seed))
 
         # node attention weight
         self.att_self_weight = self.add_weight(name='att_self_weight',
                                                shape=[1, self.head_num, self.att_embedding_size],
                                                dtype=tf.float32, regularizer=l2(self.l2_reg),
-                                               initializer=tf.keras.initializers.glorot_uniform())
+                                               initializer=tf.keras.initializers.glorot_uniform(seed=self.seed))
         # neighbor attention weight
         self.att_neigh_weight = self.add_weight(name='att_self_weight',
                                                 shape=[1, self.head_num, self.att_embedding_size],
                                                 dtype=tf.float32, regularizer=l2(self.l2_reg),
-                                                initializer=tf.keras.initializers.glorot_uniform())
+                                                initializer=tf.keras.initializers.glorot_uniform(seed=self.seed))
         if self.use_bias:
             self.bias_weight = self.add_weight(name='bias',
                                                shape=[1, self.head_num, self.att_embedding_size],
@@ -125,10 +126,13 @@ class PoolingAggregator(Layer):
         else:
             neigh_feat = tf.reduce_max(neigh_feat, axis=1)
 
+        node_feat = self.self_dropout(node_feat)
+        neigh_feat = self.self_dropout(neigh_feat)
+
         node_feat = tf.matmul(node_feat, self.self_weight)
         node_feat = tf.reshape(node_feat, [-1, self.head_num, self.att_embedding_size])
         # print('node feat:   ', node_feat)
-        neigh_feat = tf.matmul(neigh_feat, self.neigh_weight)
+        neigh_feat = tf.matmul(neigh_feat, self.self_weight)
         neigh_feat = tf.reshape(neigh_feat, [-1, self.head_num, self.att_embedding_size])
 
         att_for_self = tf.reduce_sum(node_feat * self.att_self_weight, axis=-1, keepdims=True)
@@ -137,13 +141,13 @@ class PoolingAggregator(Layer):
         dense = tf.transpose(att_for_self, [1, 0, 2]) + tf.transpose(att_for_neigh, [1, 2, 0])
         dense = tf.nn.leaky_relu(dense, alpha=0.2)
         # print('dense shape:>>  ', dense.shape)
-        mask = -10e9 * (1.0 - A)
+        mask = -10e9*(1.0 - A)
         dense += tf.expand_dims(mask, axis=0)
 
         self.normalized_att_scores = tf.nn.softmax(dense, axis=-1, )
         self.normalized_att_scores = self.att_dropout(self.normalized_att_scores)
 
-        node_feat = self.self_dropout(node_feat)
+        # node_feat = self.self_dropout(node_feat)
 
         result = tf.matmul(self.normalized_att_scores, tf.transpose(node_feat, [1, 0, 2]))
         result = tf.transpose(result, [1, 0, 2])
@@ -151,11 +155,16 @@ class PoolingAggregator(Layer):
         if self.use_bias:
             result += self.bias_weight
 
-        result = tf.reduce_mean(result, axis=1)
+        if self.reduction == "concat":
+            result = tf.concat(
+                tf.split(result, self.head_num, axis=1), axis=-1)
+            result = tf.squeeze(result, axis=1)
+        else:
+            result = tf.reduce_mean(result, axis=1)
 
         if self.activation:
             result = self.activation(result)
-        print('result:   ', result)
+        # print('result:   ', result)
         # result._use_learning_phase = True
         return result
 
