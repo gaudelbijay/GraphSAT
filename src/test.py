@@ -34,15 +34,15 @@ if __name__ == "__main__":
     model = GraphSAT(adj_dim=A.shape[0],
                      feature_dim=features.shape[-1],
                      neighbor_num=neigh_maxlen,
-                     n_att_head=8,
-                     att_embedding_size=8,
+                     n_att_head=6,
+                     att_embedding_size=256,
                      n_classes=y_train.shape[1],
                      use_bias=True,
                      activation=tf.nn.relu,
-                     aggregator_type='pooling',
-                     dropout_rate=0.6,
-                     l2_reg=2.5e-4, )
-    model.compile(Adam(0.001), 'categorical_crossentropy',
+                     aggregator_type='mean',
+                     dropout_rate=0.0,
+                     l2_reg=2.5e-20, )
+    model.compile(Adam(0.005), 'categorical_crossentropy',
                   weighted_metrics=['categorical_crossentropy', 'acc'])
     val_data = [model_input, y_val, val_mask]
 
@@ -50,10 +50,10 @@ if __name__ == "__main__":
                                   monitor='val_acc',
                                   save_best_only=True,
                                   save_weights_only=True)
-    es_callback = EarlyStopping(monitor='val_acc', patience=60)
+    es_callback = EarlyStopping(monitor='val_acc', patience=50)
     print('start training')
     model.fit(model_input, y_train, sample_weight=train_mask, validation_data=val_data, batch_size=A.shape[0],
-              epochs=200, shuffle=False, verbose=2, callbacks=[mc_callback, es_callback])
+              epochs=100, shuffle=False, verbose=2, callbacks=[mc_callback, es_callback])
     model.load_weights('./best_model.h5')
 
     eval_results = model.evaluate(

@@ -29,7 +29,7 @@ def GraphSAT(adj_dim,
     h = features
     for i in range(0, len(neighbor_num)):
         if i == len(neighbor_num) - 1:
-            activation = tf.nn.softmax
+            activation = tf.nn.sigmoid
             att_embedding_size = n_classes
             n_att_head = 1
         h = aggregator(att_embedding_size=att_embedding_size, head_num=n_att_head,
@@ -170,4 +170,113 @@ class PoolingAggregator(Layer):
 
 
 class MeanAggregator(Layer):
-    pass
+    def __init__(self, att_embedding_size=8, head_num=8, activation=tf.nn.relu,
+                 l2_reg=0.0, use_bias=False, dropout_rate=0.5,
+                 seed=1024, aggregator='mean', reduction='concat', **kwargs):
+
+        if head_num <= 0:
+            raise ValueError('head_num must be a int >0')
+
+        self.att_embedding_size = att_embedding_size
+        self.head_num = head_num
+        self.dropout_rate = dropout_rate
+        self.activation = activation
+        self.l2_reg = l2_reg
+        self.use_bias = use_bias
+        self.pooling = aggregator
+        self.seed = seed
+        self.reduction = reduction
+        super(MeanAggregator, self).__init__(**kwargs)
+
+    def build(self, input_shape):
+        A, X, N, neigh = input_shape
+        embedding_size = int(X[-1])
+
+        # For Neighbor pooling
+        self.dense_layer = [Dense(embedding_size, activation=tf.nn.relu, use_bias=True,
+                                  kernel_regularizer=l2(self.l2_reg))]
+
+        # Transforming weight  to learn state of features.
+        self.self_weight = self.add_weight(name='weight',
+                                           shape=[embedding_size, self.att_embedding_size * self.head_num],
+                                           dtype=tf.float32, regularizer=l2(self.l2_reg),
+                                           initializer=tf.keras.initializers.glorot_uniform(seed=self.seed))
+
+        self.neigh_weight = self.add_weight(name='weight',
+                                            shape=[embedding_size, self.att_embedding_size * self.head_num],
+                                            dtype=tf.float32, regularizer=l2(self.l2_reg),
+                                            initializer=tf.keras.initializers.glorot_uniform(seed=self.seed))
+
+        # node attention weight
+        self.att_self_weight = self.add_weight(name='att_self_weight',
+                                               shape=[1, self.head_num, self.att_embedding_size],
+                                               dtype=tf.float32, regularizer=l2(self.l2_reg),
+                                               initializer=tf.keras.initializers.glorot_uniform(seed=self.seed))
+        # neighbor attention weight
+        self.att_neigh_weight = self.add_weight(name='att_self_weight',
+                                                shape=[1, self.head_num, self.att_embedding_size],
+                                                dtype=tf.float32, regularizer=l2(self.l2_reg),
+                                                initializer=tf.keras.initializers.glorot_uniform(seed=self.seed))
+        if self.use_bias:
+            self.bias_weight = self.add_weight(name='bias',
+                                               shape=[1, self.head_num, self.att_embedding_size],
+                                               dtype=tf.float32, initializer=Zeros())
+
+        self.self_dropout = Dropout(self.dropout_rate)
+        self.neigh_dropout = Dropout(self.dropout_rate)
+        self.att_dropout = Dropout(self.dropout_rate)
+
+        self.built = True
+
+    def call(self, inputs):
+        A, features, node, neighbor = inputs
+        # print(features, node, inputs)
+        embedding_size = int(features.shape[-1])
+
+        node_feat = tf.nn.embedding_lookup(features, node)
+        neigh_feat = tf.nn.embedding_lookup(features, neighbor)
+        node_feat = tf.squeeze(node_feat, axis=1)
+
+        neigh_feat = tf.reduce_mean(neigh_feat, axis=1)
+
+        node_feat = self.self_dropout(node_feat)
+        neigh_feat = self.self_dropout(neigh_feat)
+
+        node_feat = tf.matmul(node_feat, self.self_weight)
+        node_feat = tf.reshape(node_feat, [-1, self.head_num, self.att_embedding_size])
+        # print('node feat:   ', node_feat)
+        neigh_feat = tf.matmul(neigh_feat, self.self_weight)
+        neigh_feat = tf.reshape(neigh_feat, [-1, self.head_num, self.att_embedding_size])
+
+        att_for_self = tf.reduce_sum(node_feat * self.att_self_weight, axis=-1, keepdims=True)
+        att_for_neigh = tf.reduce_sum(neigh_feat * self.att_neigh_weight, axis=-1, keepdims=True)
+
+        dense = tf.transpose(att_for_self, [1, 0, 2]) + tf.transpose(att_for_neigh, [1, 2, 0])
+        dense = tf.nn.leaky_relu(dense, alpha=0.2)
+        # print('dense shape:>>  ', dense.shape)
+        mask = -10e9 * (1.0 - A)
+        dense += tf.expand_dims(mask, axis=0)
+
+        self.normalized_att_scores = tf.nn.softmax(dense, axis=-1, )
+        self.normalized_att_scores = self.att_dropout(self.normalized_att_scores)
+
+        # node_feat = self.self_dropout(node_feat)
+
+        result = tf.matmul(self.normalized_att_scores, tf.transpose(node_feat, [1, 0, 2]))
+        result = tf.transpose(result, [1, 0, 2])
+
+        if self.use_bias:
+            result += self.bias_weight
+
+        if self.reduction == "concat":
+            result = tf.concat(
+                tf.split(result, self.head_num, axis=1), axis=-1)
+            result = tf.squeeze(result, axis=1)
+        else:
+            result = tf.reduce_mean(result, axis=1)
+
+        if self.activation:
+            result = self.activation(result)
+        # print('result:   ', result)
+        # result._use_learning_phase = True
+        return result
