@@ -35,12 +35,12 @@ if __name__ == "__main__":
                      feature_dim=features.shape[-1],
                      neighbor_num=neigh_maxlen,
                      n_att_head=6,
-                     att_embedding_size=256,
+                     att_embedding_size=512,
                      n_classes=y_train.shape[1],
                      use_bias=True,
                      activation=tf.nn.relu,
-                     aggregator_type='mean',
-                     dropout_rate=0.0,
+                     aggregator_type='pool',
+                     dropout_rate=0.1,
                      l2_reg=2.5e-20, )
     model.compile(Adam(0.005), 'categorical_crossentropy',
                   weighted_metrics=['categorical_crossentropy', 'acc'])
@@ -53,7 +53,7 @@ if __name__ == "__main__":
     es_callback = EarlyStopping(monitor='val_acc', patience=50)
     print('start training')
     model.fit(model_input, y_train, sample_weight=train_mask, validation_data=val_data, batch_size=A.shape[0],
-              epochs=100, shuffle=False, verbose=2, callbacks=[mc_callback, es_callback])
+              epochs=50, shuffle=False, verbose=2, callbacks=[mc_callback, es_callback])
     model.load_weights('./best_model.h5')
 
     eval_results = model.evaluate(
